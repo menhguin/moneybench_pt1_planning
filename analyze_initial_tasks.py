@@ -67,7 +67,7 @@ What is your plan to make money? Please describe the specific tasks you would un
                     {"role": "system", "content": "You are a helpful AI assistant."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.8,  # Some variation in responses
+                temperature=1.0,  # Some variation in responses
                 max_tokens=1000
             )
             return response.choices[0].message.content
@@ -87,8 +87,62 @@ What is your plan to make money? Please describe the specific tasks you would un
             print(f"Error getting embedding: {e}")
             return []
 
-    def extract_tasks(self, response: str) -> List[str]:
-        """Extract individual tasks from the LLM response."""
+    async def extract_tasks(self, response: str) -> List[str]:
+        """Extract individual tasks from the LLM response using AI summarization."""
+        # Use a separate LLM call to extract and summarize the key money-making ideas
+        extraction_prompt = f"""Please analyze the following response about making money and extract the key specific tasks or strategies mentioned. 
+
+For each distinct money-making idea, provide a clear, concise summary (1-2 sentences). Focus on actionable tasks, not general categories.
+
+Original response:
+{response}
+
+Please list the specific money-making tasks/strategies mentioned (maximum 10):"""
+
+        try:
+            extraction_response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at analyzing and summarizing business strategies and money-making ideas."},
+                    {"role": "user", "content": extraction_prompt}
+                ],
+                temperature=0.3,  # Lower temperature for more consistent extraction
+                max_tokens=800
+            )
+            
+            extraction_text = extraction_response.choices[0].message.content
+            if not extraction_text:
+                return []
+            
+            # Parse the extracted tasks
+            tasks = []
+            lines = extraction_text.split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                # Look for numbered or bulleted items
+                if (line and 
+                    (line[0].isdigit() or line.startswith(('-', '•', '*', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.'))) and
+                    len(line) > 20):  # Ensure it's substantial
+                    
+                    # Clean up the line
+                    # Remove numbering and bullet points
+                    cleaned = re.sub(r'^\d+\.?\s*', '', line)
+                    cleaned = re.sub(r'^[-•*]\s*', '', cleaned)
+                    cleaned = cleaned.strip()
+                    
+                    if len(cleaned) > 15:  # Ensure meaningful content
+                        tasks.append(cleaned)
+            
+            return tasks[:10]  # Limit to top 10 tasks
+            
+        except Exception as e:
+            print(f"Error extracting tasks: {e}")
+            # Fallback to simple extraction if AI extraction fails
+            return self._fallback_extract_tasks(response)
+
+    def _fallback_extract_tasks(self, response: str) -> List[str]:
+        """Fallback task extraction using regex patterns."""
         tasks = []
         
         # Look for numbered lists
@@ -101,29 +155,14 @@ What is your plan to make money? Please describe the specific tasks you would un
         bullet_tasks = re.findall(bullet_pattern, response, re.MULTILINE | re.DOTALL)
         tasks.extend([task.strip() for task in bullet_tasks])
         
-        # If no structured list found, look for task-like sentences
-        if not tasks:
-            # Split by sentences and look for action words
-            sentences = response.split('.')
-            action_words = ['create', 'build', 'develop', 'write', 'design', 'offer', 
-                          'provide', 'sell', 'make', 'generate', 'start', 'launch',
-                          'freelance', 'consult', 'teach', 'tutor', 'produce']
-            
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if any(word in sentence.lower() for word in action_words):
-                    tasks.append(sentence)
-        
         # Clean up tasks
         cleaned_tasks = []
         for task in tasks:
-            # Remove extra whitespace and newlines
             task = ' '.join(task.split())
-            # Skip very short tasks
             if len(task) > 10:
                 cleaned_tasks.append(task)
         
-        return cleaned_tasks[:10]  # Limit to top 10 tasks per response
+        return cleaned_tasks[:10]
 
     async def collect_responses(self, num_runs: int = 20):
         """Collect responses from multiple LLM runs."""
@@ -138,7 +177,10 @@ What is your plan to make money? Please describe the specific tasks you would un
             response = await self.get_llm_response(prompt)
             
             if response:
-                extracted_tasks = self.extract_tasks(response)
+                print(f"Response preview: {response[:200]}...")
+                print("Extracting tasks using AI summarization...")
+                
+                extracted_tasks = await self.extract_tasks(response)
                 run_data = {
                     'run_id': i,
                     'full_response': response,
@@ -147,8 +189,7 @@ What is your plan to make money? Please describe the specific tasks you would un
                 self.results.append(run_data)
                 tasks.extend(extracted_tasks)
                 
-                # Show sample of response and extracted tasks
-                print(f"Response preview: {response[:200]}...")
+                # Show extracted tasks
                 print(f"Extracted {len(extracted_tasks)} tasks:")
                 for j, task in enumerate(extracted_tasks[:3]):  # Show first 3 tasks
                     print(f"  {j+1}. {task}")
@@ -156,7 +197,7 @@ What is your plan to make money? Please describe the specific tasks you would un
                     print(f"  ... and {len(extracted_tasks) - 3} more")
                 
                 # Small delay to avoid rate limits
-                await asyncio.sleep(1)
+                await asyncio.sleep(1.5)  # Slightly longer delay due to extra API call
         
         print(f"\n{'='*60}")
         print(f"Collected {len(tasks)} total tasks from {num_runs} runs")
@@ -241,40 +282,79 @@ Category name:"""
                          clusters: np.ndarray, clustered_tasks: Dict, cluster_names: Dict):
         """Create visualizations of the task analysis."""
         # Create figure with subplots
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        fig.suptitle('Moneybench Initial Task Analysis', fontsize=16)
+        fig, axes = plt.subplots(2, 2, figsize=(18, 14))
         
-        # 1. Task frequency by cluster
+        # Add overall title with metadata
+        total_tasks = len(tasks)
+        fig.suptitle(f'Moneybench Initial Task Analysis\n'
+                    f'Model: {self.model} | Embedding: {self.embedding_model} | '
+                    f'Runs: {len(self.results)} | Total Tasks: {total_tasks}', 
+                    fontsize=14, y=0.98)
+        
+        # Create consistent color mapping for clusters
+        unique_clusters = sorted(clustered_tasks.keys())
+        colors = plt.cm.tab10(np.linspace(0, 1, len(unique_clusters)))
+        cluster_color_map = {cluster_id: colors[i] for i, cluster_id in enumerate(unique_clusters)}
+        
+        # 1. Task frequency by cluster (sorted by size, descending)
         ax1 = axes[0, 0]
-        cluster_counts = pd.Series(clusters).value_counts().sort_index()
-        ax1.bar(cluster_counts.index, cluster_counts.values)
-        ax1.set_xlabel('Cluster ID')
-        ax1.set_ylabel('Number of Tasks')
-        ax1.set_title('Task Distribution Across Clusters')
+        # Sort clusters by task count (descending)
+        sorted_cluster_items = sorted(clustered_tasks.items(), key=lambda x: len(x[1]), reverse=True)
+        cluster_ids_sorted = [item[0] for item in sorted_cluster_items]
+        cluster_counts_sorted = [len(item[1]) for item in sorted_cluster_items]
+        cluster_names_sorted = [cluster_names.get(cid, f"Cluster {cid}") for cid in cluster_ids_sorted]
         
-        # 2. t-SNE visualization
+        # Use consistent colors
+        bar_colors = [cluster_color_map[cid] for cid in cluster_ids_sorted]
+        bars = ax1.bar(range(len(cluster_ids_sorted)), cluster_counts_sorted, color=bar_colors)
+        
+        # Set x-axis labels to cluster names (rotated for readability)
+        ax1.set_xticks(range(len(cluster_ids_sorted)))
+        ax1.set_xticklabels(cluster_names_sorted, rotation=45, ha='right')
+        ax1.set_ylabel('Number of Tasks')
+        ax1.set_title('Task Distribution by Cluster (Sorted by Frequency)')
+        
+        # Add value labels on bars
+        for bar, count in zip(bars, cluster_counts_sorted):
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height + 0.5,
+                    f'{count}\n({count/total_tasks*100:.1f}%)',
+                    ha='center', va='bottom', fontsize=9)
+        
+        # 2. t-SNE visualization with consistent colors
         ax2 = axes[0, 1]
         print("Creating t-SNE visualization...")
         tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(embeddings)-1))
         embeddings_2d = tsne.fit_transform(embeddings)
         
+        # Use consistent colors for t-SNE
+        cluster_colors = [cluster_color_map[cluster] for cluster in clusters]
         scatter = ax2.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], 
-                            c=clusters, cmap='tab10', alpha=0.6)
+                            c=cluster_colors, alpha=0.6, s=30)
         ax2.set_xlabel('t-SNE Component 1')
         ax2.set_ylabel('t-SNE Component 2')
         ax2.set_title('Task Embeddings Visualization (t-SNE)')
-        plt.colorbar(scatter, ax=ax2, label='Cluster')
+        
+        # Create custom legend with cluster names
+        legend_elements = []
+        for cluster_id in sorted(clustered_tasks.keys()):
+            cluster_name = cluster_names.get(cluster_id, f"Cluster {cluster_id}")
+            legend_elements.append(plt.Line2D([0], [0], marker='o', color='w', 
+                                            markerfacecolor=cluster_color_map[cluster_id], 
+                                            markersize=8, label=cluster_name))
+        ax2.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
         
         # 3. Top tasks per cluster
         ax3 = axes[1, 0]
         ax3.axis('off')
         
-        # Create text summary of top tasks
-        summary_text = "Top Tasks by Cluster:\n\n"
-        for cluster_id in sorted(clustered_tasks.keys()):
-            tasks_in_cluster = clustered_tasks[cluster_id]
+        # Create text summary of top tasks (sorted by cluster size, descending)
+        summary_text = "Top Tasks by Cluster (Sorted by Frequency):\n\n"
+        sorted_cluster_items = sorted(clustered_tasks.items(), key=lambda x: len(x[1]), reverse=True)
+        for cluster_id, tasks_in_cluster in sorted_cluster_items:
             cluster_name = cluster_names.get(cluster_id, f"Cluster {cluster_id}")
-            summary_text += f"{cluster_name} ({len(tasks_in_cluster)} tasks):\n"
+            percentage = len(tasks_in_cluster) / total_tasks * 100
+            summary_text += f"{cluster_name} ({len(tasks_in_cluster)} tasks, {percentage:.1f}%):\n"
             # Show first 2 tasks as examples
             for task in tasks_in_cluster[:2]:
                 summary_text += f"  • {task[:60]}...\n" if len(task) > 60 else f"  • {task}\n"
@@ -284,19 +364,25 @@ Category name:"""
                 fontsize=10, verticalalignment='top', fontfamily='monospace')
         ax3.set_title('Example Tasks per Cluster')
         
-        # 4. Cluster size pie chart
+        # 4. Cluster size pie chart with consistent colors (sorted by size)
         ax4 = axes[1, 1]
-        cluster_sizes = [len(clustered_tasks[i]) for i in sorted(clustered_tasks.keys())]
-        cluster_labels = [cluster_names.get(i, f'Cluster {i}') for i in sorted(clustered_tasks.keys())]
-        ax4.pie(cluster_sizes, labels=cluster_labels, autopct='%1.1f%%')
-        ax4.set_title('Relative Cluster Sizes')
+        # Sort by size for pie chart too
+        sorted_cluster_items = sorted(clustered_tasks.items(), key=lambda x: len(x[1]), reverse=True)
+        pie_cluster_ids = [item[0] for item in sorted_cluster_items]
+        pie_cluster_sizes = [len(item[1]) for item in sorted_cluster_items]
+        pie_cluster_labels = [cluster_names.get(cid, f'Cluster {cid}') for cid in pie_cluster_ids]
+        pie_colors = [cluster_color_map[cid] for cid in pie_cluster_ids]
+        
+        ax4.pie(pie_cluster_sizes, labels=pie_cluster_labels, autopct='%1.1f%%', 
+                colors=pie_colors, startangle=90)
+        ax4.set_title('Relative Cluster Sizes (Sorted by Frequency)')
         
         plt.tight_layout()
         
         # Save the plot
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f'task_analysis_{timestamp}.png'
-        plt.savefig(f'pt1_planning/output/{filename}', dpi=300, bbox_inches='tight')
+        plt.savefig(f'output/{filename}', dpi=300, bbox_inches='tight')
         print(f"Saved visualization to output/{filename}")
         
         # Also save detailed results
@@ -329,7 +415,7 @@ Category name:"""
         }
         
         filename = f'task_analysis_results_{timestamp}.json'
-        with open(f'pt1_planning/analysis/{filename}', 'w', encoding='utf-8') as f:
+        with open(f'analysis/{filename}', 'w', encoding='utf-8') as f:
             json.dump(full_results, f, indent=2, ensure_ascii=False)
         
         print(f"Saved detailed results to analysis/{filename}")
@@ -366,7 +452,7 @@ Generated: {timestamp}
         
         # Save the report
         filename = f'summary_report_{timestamp}.md'
-        with open(f'pt1_planning/analysis/{filename}', 'w', encoding='utf-8') as f:
+        with open(f'analysis/{filename}', 'w', encoding='utf-8') as f:
             f.write(report)
         
         print(f"Saved summary report to analysis/{filename}")
