@@ -4,8 +4,8 @@ from __future__ import annotations
 
 # OpenRouter model for text generation
 # You can use any model from https://openrouter.ai/models
-# Examples: "openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.1-8b-instruct"
-OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
+# Examples: "openai/gpt-4o-mini", "anthropic/claude-sonnet-4", "meta-llama/llama-3.1-8b-instruct"
+OPENROUTER_MODEL: str = "anthropic/claude-sonnet-4"
 
 # OpenAI embedding model (keeping this on OpenAI)
 EMBED_MODEL: str = "text-embedding-3-large"

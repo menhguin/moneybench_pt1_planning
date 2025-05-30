@@ -97,7 +97,7 @@ class TaskClusterer:
             sample_tasks = tasks[:5]  # Use first 5 as representative
             tasks_text = "\n".join([f"- {task}" for task in sample_tasks])
             
-            prompt = f"""Based on these money-making tasks, provide a short, descriptive category name (2-4 words):
+            prompt = f"""Based on these money-making tasks, provide a short, descriptive category name (<10 words). Provide just the name, no other text:
 
 {tasks_text}
 
