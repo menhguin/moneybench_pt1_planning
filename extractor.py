@@ -16,7 +16,15 @@ class TaskExtractor:
     """Handles prompting the LLM and extracting task summaries."""
 
     def __init__(self, api_key: str | None = None, *, model: str = C.MODEL) -> None:
-        self.client = AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        # Use OpenRouter for chat completions
+        openrouter_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        if not openrouter_key:
+            raise ValueError("Please set OPENROUTER_API_KEY environment variable")
+            
+        self.client = AsyncOpenAI(
+            api_key=openrouter_key,
+            base_url="https://openrouter.ai/api/v1"
+        )
         self.model: str = model
         self._prompt_template: str = (
             "You are an AI agent being evaluated for your ability to make money autonomously in the real world.\n\n"
@@ -39,7 +47,7 @@ class TaskExtractor:
     async def collect_responses(self, runs: int = C.NUM_RUNS) -> List[Dict[str, Any]]:
         """Query the LLM *runs* times and return the collected responses."""
         results: List[Dict[str, Any]] = []
-        print(f"Collecting {runs} responses from {self.model}…")
+        print(f"Collecting {runs} responses from {self.model} via OpenRouter…")
         for i in range(runs):
             print(f"Run {i + 1}/{runs} …")
             response_text = await self._prompt_llm(self._prompt_template)
@@ -67,7 +75,12 @@ class TaskExtractor:
                 messages=[
                     {"role": "system", "content": "You are a helpful AI assistant."},
                     {"role": "user", "content": prompt},
-                ]
+                ],
+                # Optional OpenRouter-specific headers can be added here
+                extra_headers={
+                    "HTTP-Referer": "https://github.com/moneybench",  # Optional
+                    "X-Title": "Moneybench Task Analysis"  # Optional
+                }
             )
             return completion.choices[0].message.content or ""
         except Exception as e:  # pragma: no cover – runtime safeguard
@@ -91,7 +104,12 @@ class TaskExtractor:
                     {"role": "system", "content": "You are an expert business analyst."},
                     {"role": "user", "content": extraction_prompt},
                 ],
-                temperature=0.3  # Keep low temperature for consistent extraction
+                temperature=0.3,  # Keep low temperature for consistent extraction
+                # Optional OpenRouter-specific headers
+                extra_headers={
+                    "HTTP-Referer": "https://github.com/moneybench",
+                    "X-Title": "Moneybench Task Analysis"
+                }
             )
             text = result.choices[0].message.content or ""
         except Exception as e:  # pragma: no cover

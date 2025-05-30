@@ -18,12 +18,28 @@ class TaskClusterer:
     """Handles embedding tasks and clustering them into groups."""
     
     def __init__(self, api_key: str | None = None):
-        self.client = AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        # Use OpenAI for embeddings
+        openai_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise ValueError("Please set OPENAI_API_KEY environment variable for embeddings")
+        
+        self.openai_client = AsyncOpenAI(api_key=openai_key)
+        
+        # Use OpenRouter for chat completions (cluster naming)
+        openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        if not openrouter_key:
+            raise ValueError("Please set OPENROUTER_API_KEY environment variable")
+            
+        self.openrouter_client = AsyncOpenAI(
+            api_key=openrouter_key,
+            base_url="https://openrouter.ai/api/v1"
+        )
+        
         self.embedding_model = C.EMBED_MODEL
     
     async def embed_tasks(self, tasks: List[str]) -> np.ndarray:
         """Embed all tasks using OpenAI's embedding model."""
-        print(f"Embedding {len(tasks)} tasks...")
+        print(f"Embedding {len(tasks)} tasks using OpenAI...")
         embeddings = []
         
         for i, task in enumerate(tasks):
@@ -31,7 +47,7 @@ class TaskClusterer:
                 print(f"  Progress: {i}/{len(tasks)}")
             
             try:
-                response = await self.client.embeddings.create(
+                response = await self.openai_client.embeddings.create(
                     model=self.embedding_model,
                     input=task
                 )
@@ -73,8 +89,8 @@ class TaskClusterer:
         return clusters, dict(clustered_tasks)
     
     async def generate_cluster_names(self, clustered_tasks: Dict[int, List[str]], model: str = C.MODEL) -> Dict[int, str]:
-        """Generate descriptive names for each cluster."""
-        print("Generating cluster names...")
+        """Generate descriptive names for each cluster using OpenRouter."""
+        print(f"Generating cluster names using {model} via OpenRouter...")
         cluster_names = {}
         
         for cluster_id, tasks in clustered_tasks.items():
@@ -88,10 +104,15 @@ class TaskClusterer:
 Category name:"""
             
             try:
-                response = await self.client.chat.completions.create(
+                response = await self.openrouter_client.chat.completions.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3  # Low temperature for consistent naming
+                    temperature=0.3,  # Low temperature for consistent naming
+                    # Optional OpenRouter-specific headers
+                    extra_headers={
+                        "HTTP-Referer": "https://github.com/moneybench",
+                        "X-Title": "Moneybench Task Analysis"
+                    }
                 )
                 name = response.choices[0].message.content
                 if name:

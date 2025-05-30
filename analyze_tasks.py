@@ -4,8 +4,8 @@ Main script for analyzing initial task choices by LLMs given the Moneybench prom
 
 This script:
 1. Loads a prompt similar to Moneybench
-2. Runs it through GPT-4o-mini multiple times
-3. Uses AI to extract and summarize tasks
+2. Runs it through an LLM via OpenRouter multiple times
+3. Uses OpenAI to extract embeddings and summarize tasks
 4. Clusters tasks using embeddings
 5. Visualizes the results
 """
@@ -24,18 +24,26 @@ from reporter import ResultsReporter
 
 async def main():
     """Main analysis pipeline."""
-    # Check for API key
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("❌ Please set OPENAI_API_KEY environment variable")
+    # Check for API keys
+    openai_key = os.getenv("OPENAI_API_KEY")
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    
+    if not openai_key:
+        print("❌ Please set OPENAI_API_KEY environment variable (needed for embeddings)")
+        return 1
+    
+    if not openrouter_key:
+        print("❌ Please set OPENROUTER_API_KEY environment variable (needed for chat completions)")
         return 1
     
     print("Starting Moneybench Task Analysis...")
+    print(f"Using {C.OPENROUTER_MODEL} via OpenRouter for text generation")
+    print(f"Using {C.EMBED_MODEL} via OpenAI for embeddings")
     print(f"This will collect {C.NUM_RUNS} LLM responses and analyze them.")
     print("="*60)
     
     # 1. Extract tasks from LLM responses
-    extractor = TaskExtractor(api_key)
+    extractor = TaskExtractor()  # Will use OPENROUTER_API_KEY from env
     responses = await extractor.collect_responses(C.NUM_RUNS)
     
     # Flatten all tasks
@@ -51,7 +59,7 @@ async def main():
         return 1
     
     # 2. Embed and cluster tasks
-    clusterer = TaskClusterer(api_key)
+    clusterer = TaskClusterer()  # Will use both API keys from env
     embeddings = await clusterer.embed_tasks(all_tasks)
     
     if len(embeddings) == 0:

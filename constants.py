@@ -2,8 +2,16 @@ from __future__ import annotations
 
 """Project-wide constants used by the Moneybench task-analysis scripts."""
 
-MODEL: str = "gpt-4o-mini"
+# OpenRouter model for text generation
+# You can use any model from https://openrouter.ai/models
+# Examples: "openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.1-8b-instruct"
+OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
+
+# OpenAI embedding model (keeping this on OpenAI)
 EMBED_MODEL: str = "text-embedding-3-large"
+
+# Legacy constant for backward compatibility
+MODEL: str = OPENROUTER_MODEL
 
 # How many independent queries of the LLM to collect per run
 NUM_RUNS: int = 20
