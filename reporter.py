@@ -11,6 +11,10 @@ import constants as C
 class ResultsReporter:
     """Handles saving results and generating reports."""
     
+    def _sanitize_model_name(self, name: str) -> str:
+        """Sanitize model name for use in filenames."""
+        return name.replace("/", "_").replace(":", "-")
+
     def save_results(
         self,
         clustered_tasks: Dict[int, List[str]],
@@ -45,7 +49,9 @@ class ResultsReporter:
             'raw_responses': raw_responses
         }
         
-        filename = f'task_analysis_results_{timestamp}.json'
+        s_model = self._sanitize_model_name(model)
+        s_embed_model = self._sanitize_model_name(embed_model)
+        filename = f'task_analysis_results_{s_model}_{s_embed_model}_{timestamp}.json'
         filepath = f'{C.ANALYSIS_DIR}/{filename}'
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(full_results, f, indent=2, ensure_ascii=False)
@@ -89,7 +95,9 @@ Generated: {timestamp}
             report += "\n"
         
         # Save the report
-        filename = f'summary_report_{timestamp}.md'
+        s_model = self._sanitize_model_name(model)
+        s_embed_model = self._sanitize_model_name(embed_model)
+        filename = f'summary_report_{s_model}_{s_embed_model}_{timestamp}.md'
         filepath = f'{C.ANALYSIS_DIR}/{filename}'
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(report)
