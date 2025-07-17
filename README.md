@@ -9,7 +9,6 @@ This script analyzes what initial tasks LLMs choose when given the Moneybench pr
 3. **Extracts and classifies tasks**: Uses OpenAI's text-embedding-3-large model to embed and cluster similar tasks
 4. **Visualizes results**: Creates plots showing task distributions and clusters
 
-Planning analysis from: https://github.com/menhguin/moneybench_pt1_planning
 <img width="707" height="619" alt="image" src="https://github.com/user-attachments/assets/e6f40823-1186-4180-a13a-4aadb11b2107" />
 
 <img width="772" height="608" alt="image" src="https://github.com/user-attachments/assets/0ecda393-bc39-4c20-a8d9-09816714ce5a" />
